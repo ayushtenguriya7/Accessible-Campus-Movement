@@ -2,6 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
+
+// Dynamic import with SSR disabled for Leaflet map
+const CampusMap = dynamic(() => import('../../components/CampusMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm min-h-[480px] flex flex-col items-center justify-center text-center">
+      <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+      <p className="text-sm text-slate-500">Loading Campus Map...</p>
+    </div>
+  ),
+});
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -70,17 +82,9 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Map Placeholder Area */}
-        <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm min-h-[360px] flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 bg-slate-100 border border-slate-200 rounded-full flex items-center justify-center text-slate-500 mb-3 text-lg font-bold">
-            📍
-          </div>
-          <h2 className="text-base font-semibold text-slate-800">
-            Campus Interactive Map
-          </h2>
-          <p className="text-sm text-slate-500 max-w-md mt-1">
-            Map view and route calculation will be displayed here.
-          </p>
+        {/* Campus Map */}
+        <div className="w-full min-h-[480px]">
+          <CampusMap />
         </div>
 
         {/* Action Sections */}

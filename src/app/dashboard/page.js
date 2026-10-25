@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import RouteFinderCard from '../../components/RouteFinderCard';
+import { useRouteFinder } from '../../hooks/useRouteFinder';
 
 // Dynamic import with SSR disabled for Leaflet map
 const CampusMap = dynamic(() => import('../../components/CampusMap'), {
@@ -18,6 +20,8 @@ const CampusMap = dynamic(() => import('../../components/CampusMap'), {
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  // Module 1: source/destination selection + route search state shared by the map and the route card
+  const routeFinder = useRouteFinder();
 
   // Fetch logged-in user and their role from the verified JWT token
   useEffect(() => {
@@ -84,19 +88,18 @@ export default function DashboardPage() {
 
         {/* Campus Map */}
         <div className="w-full min-h-[480px]">
-          <CampusMap />
+          <CampusMap
+            buildings={routeFinder.buildings}
+            sourceId={routeFinder.sourceId}
+            destinationId={routeFinder.destinationId}
+            routeCoordinates={routeFinder.route?.coordinates ?? null}
+            resetToken={routeFinder.resetCount}
+          />
         </div>
 
         {/* Action Sections */}
         <div className="grid md:grid-cols-3 gap-4">
-          <div className="bg-white border border-slate-200 rounded-lg p-5">
-            <h3 className="font-semibold text-slate-800 text-sm mb-1">
-              Find Accessible Route
-            </h3>
-            <p className="text-xs text-slate-500">
-              Check step-free paths between campus buildings.
-            </p>
-          </div>
+          <RouteFinderCard finder={routeFinder} />
 
           <div className="bg-white border border-slate-200 rounded-lg p-5">
             <h3 className="font-semibold text-slate-800 text-sm mb-1">

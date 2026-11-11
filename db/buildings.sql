@@ -1,3 +1,5 @@
+-- Run order: 1) users.sql 2) buildings.sql
+--
 -- NOTE: counts for all buildings except the first five are SAMPLE DATA.
 -- Replace with real survey numbers.
 --

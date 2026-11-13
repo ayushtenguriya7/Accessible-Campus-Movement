@@ -30,16 +30,23 @@ export async function POST(request) {
         }
       }
     } catch (dbError) {
-      console.warn('Database offline, checking default student demo credentials');
+      console.warn('Database offline, checking default demo credentials');
     }
 
-    // Step 3: Default student demo check (if database is not running)
-    if (!user && registrationNo.trim() === '11111111' && password === '11111111') {
+    // Step 3: Default demo accounts check (if database is not running or unreachable)
+    if (!user && registrationNo.trim() === '11111111' && (password === '11111111' || password === 'student123')) {
       user = {
         id: 1,
         registration_no: '11111111',
         name: 'Student User',
-        role: 'student', // User role
+        role: 'student',
+      };
+    } else if (!user && registrationNo.trim() === '22222222' && (password === '22222222' || password === 'staff123')) {
+      user = {
+        id: 2,
+        registration_no: '22222222',
+        name: 'Estate Staff User',
+        role: 'estate_staff',
       };
     }
 

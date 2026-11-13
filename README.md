@@ -20,6 +20,24 @@ You can start editing the page by modifying `app/page.js`. The page auto-updates
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Database setup (Neon)
+
+```bash
+cp .env.example .env.local
+# paste the DATABASE_URL the team lead sent you
+npm install
+npm run dev
+```
+
+Never commit .env.local.
+
+If you are initializing a fresh database, run the SQL scripts in order:
+```bash
+psql "$DATABASE_URL" -f db/users.sql
+psql "$DATABASE_URL" -f db/buildings.sql
+psql "$DATABASE_URL" -f db/tickets.sql
+```
+
 ## Test Accounts (For Development Only)
 
 These test accounts correspond to the seeds in `db/users.sql` for local development:
@@ -28,11 +46,6 @@ These test accounts correspond to the seeds in `db/users.sql` for local developm
 |---|---|---|---|
 | Student | `11111111` | `student123` | Student role and route planning |
 | Estate Staff | `22222222` | `staff123` | Estate maintenance & staff view |
-
-To seed your local database with these users:
-```bash
-psql "$DATABASE_URL" -f db/users.sql
-```
 
 ## Learn More
 

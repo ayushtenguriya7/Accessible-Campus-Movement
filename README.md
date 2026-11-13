@@ -38,32 +38,76 @@ psql "$DATABASE_URL" -f db/buildings.sql
 psql "$DATABASE_URL" -f db/tickets.sql
 ```
 
-## Test Accounts (For Development Only)
+## Test Accounts (For Development & Testing)
 
-These test accounts correspond to the seeds in `db/users.sql` for local development. Both accounts also work offline if PostgreSQL is temporarily unreachable:
+These accounts are seeded in `db/users.sql` and supported by offline mock auth fallbacks if PostgreSQL is unreachable:
 
-| Role | Registration No | Password | Accepted Fallback | Purpose |
+| Role | Registration No | Password | Accepted Fallback | Purpose & Primary Destination |
 |---|---|---|---|---|
-| Student | `11111111` | `student123` | `11111111` | Route planning, viewing accessibility, reporting issues |
-| Estate Staff | `22222222` | `staff123` | `22222222` | Estate tickets dashboard, resolving obstacle reports |
+| **Student** | `11111111` | `student123` | `11111111` | Campus navigation, route planning, obstacle reporting (`/dashboard`) |
+| **Estate Staff** | `22222222` | `staff123` | `22222222` | Ticket tracking, search/filters, resolution workflow (`/dashboard/estate`) |
 
-## Application Pages
+---
 
-- **`/` (Login Page)**: Role-based authentication using registration number and password. Redirects authenticated users directly to `/dashboard`.
-- **`/dashboard` (Campus Route & Barrier Dashboard)**: Interactive campus map, accessible route planning, building accessibility facility counts table, modal dialog to report broken features, and a header link to Estate Tickets for staff users.
-- **`/dashboard/estate` (Estate Staff Portal)**: Role-guarded management portal for `estate_staff`. Features building name search (with 300ms debounce and in-flight request cancellation), status filter tabs (`All`, `Pending`, `Resolved`) with dynamic count badges, and an inline two-step confirmation to resolve tickets and restore facility counts.
+## Role-Based Routing & Access Control
+
+Route protection is managed by `src/middleware.js` with matcher `['/', '/dashboard/:path*']` using JWT verification (`HS256`). Non-staff users requesting staff endpoints also receive a server-side `403 Forbidden` from `/api/tickets`.
+
+### Role-Redirect Table
+
+| User State / Role | Requested Path | Action / Redirect Target | Notes |
+|---|---|---|---|
+| **Unauthenticated / Expired** | `/` | Allow (Login page) | Public access |
+| **Unauthenticated / Expired** | `/dashboard/:path*` | Redirect to `/` | Deletes expired `user_token` cookie |
+| **Student** (`student`) | `/` | Redirect to `/dashboard` | Direct to Student Dashboard |
+| **Student** (`student`) | `/dashboard` | Allow | Student Campus Navigation & Reporting |
+| **Student** (`student`) | `/dashboard/estate/:path*` | Redirect to `/dashboard` | Guarded against student access |
+| **Estate Staff** (`estate_staff`) | `/` | Redirect to `/dashboard/estate` | Direct to Resolution Dashboard |
+| **Estate Staff** (`estate_staff`) | `/dashboard` | Redirect to `/dashboard/estate` | Auto-routes staff to tickets portal |
+| **Estate Staff** (`estate_staff`) | `/dashboard/estate` | Allow | Estate Resolution Dashboard |
+
+---
+
+## The Two Dashboards: Who Sees What
+
+The platform provides strictly separated dashboard experiences for students and estate maintenance staff:
+
+### 1. Student Dashboard (`/dashboard`)
+- **Target Role**: `student`
+- **Header**: Shared `DashboardHeader` with UNS branding, student registration number, `Student` badge, and Sign Out.
+- **Title**: *Campus Route & Barrier Dashboard*
+- **Main Features**:
+  - **Campus Leaflet Map (`CampusMap`)**: Interactive map displaying campus buildings, markers, and accessible paths.
+  - **Find Accessible Route (`RouteFinderCard`)**: Accessible navigation planner between source and destination buildings avoiding reported obstacles.
+  - **Building Accessibility Status (`BuildingAccessibilityCard`)**: Live counts of working vs. total lifts, ramps, and stairs for any selected building.
+  - **Report Issue Modal**: Accessible dialog (`role="dialog"`, `aria-modal="true"`) to log broken facilities, decrementing live working counts immediately.
+- **Excluded**: No estate maintenance links, no tickets table, no resolution controls.
+
+### 2. Estate Resolution Dashboard (`/dashboard/estate`)
+- **Target Role**: `estate_staff`
+- **Header**: Shared `DashboardHeader` with UNS branding, staff registration number, `Estate Staff` badge, and Sign Out.
+- **Title**: *Estate Resolution Dashboard* ("Review, search and resolve accessibility issues reported on campus.")
+- **Main Features**:
+  - **Summary Cards**: Three top-level metrics displaying campus-wide counts (Total Tickets, Pending, Resolved), unaffected by active search filters.
+  - **Search & Filters**: Debounced (300ms) building search input (`type="search"`) with clear button and status filter tabs (`All`, `Pending`, `Resolved`) with dynamic count badges.
+  - **In-flight Abort**: Aborts stale search requests using `AbortController` to guarantee UI consistency.
+  - **Tickets Table**: Real HTML `<table>` with ID, Building, Issue icon, Description, Reporter, Date, Status badge, and Action.
+  - **Resolution Workflow**: Inline two-step confirmation ("Mark resolved" → "Are you sure? Yes / Cancel") invoking `PATCH /api/tickets/:id`, restoring building counts and updating both the table and summary cards.
+- **Excluded**: No campus map, no route finder, no building accessibility card.
+
+---
 
 ## API Routes
 
 | Endpoint | Method | Access | Description |
 |---|---|---|---|
-| `/api/auth/login` | `POST` | Public | Authenticates credentials, verifies password against bcrypt hash, and sets HTTP-only JWT cookie. |
+| `/api/auth/login` | `POST` | Public | Authenticates credentials against bcrypt hash in Neon DB (with offline fallback) and sets HTTP-only JWT cookie. |
 | `/api/auth/logout` | `POST` | Public | Clears the session cookie. |
 | `/api/auth/me` | `GET` | Public / Session | Reads session cookie and returns current user payload (`id, registrationNo, role, name`). |
-| `/api/buildings` | `GET` | Authenticated | Lists all buildings with ramp, lift, and stairs total and working counts. |
+| `/api/buildings` | `GET` | Authenticated | Lists all campus buildings with ramp, lift, and stairs total and working counts. |
 | `/api/tickets` | `POST` | Authenticated (`student`, `estate_staff`) | Submits a barrier report. In a single transaction, decrements the working count in `buildings` and inserts a `Pending` ticket. |
-| `/api/tickets` | `GET` | `estate_staff` only | Returns barrier tickets joined with building details, supporting building search, status filtering, and aggregate counts. |
-| `/api/tickets/[id]` | `PATCH` | `estate_staff` only | In a single transaction, marks a ticket as `Resolved` and restores the corresponding working count in `buildings` (capped at total). |
+| `/api/tickets` | `GET` | `estate_staff` only | Returns barrier tickets joined with building details, supporting building search, status filtering, and aggregate counts. Non-staff receives 403. |
+| `/api/tickets/[id]` | `PATCH` | `estate_staff` only | In a single transaction, marks a ticket as `Resolved` and restores the corresponding working count in `buildings` (capped at total). Non-staff receives 403. |
 
 ## Learn More
 

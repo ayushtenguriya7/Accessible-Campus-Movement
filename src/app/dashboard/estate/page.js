@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import DashboardHeader from '@/components/DashboardHeader';
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
@@ -27,11 +26,10 @@ const FEATURE_ICONS = {
 };
 
 export default function EstateDashboardPage() {
-  const router = useRouter();
-
-  // Role validation state: render nothing until staff authentication is confirmed
-  const [authorized, setAuthorized] = useState(false);
   const [user, setUser] = useState(null);
+
+  // Overall counts for summary cards (not affected by search query)
+  const [summaryCounts, setSummaryCounts] = useState({ all: 0, pending: 0, resolved: 0 });
 
   // Tickets & filter states
   const [tickets, setTickets] = useState([]);
@@ -50,30 +48,49 @@ export default function EstateDashboardPage() {
 
   const abortControllerRef = useRef(null);
 
-  // 1. Role verification check on mount
+  // 1. Fetch user data for DashboardHeader on mount
   useEffect(() => {
     let isMounted = true;
     fetch('/api/auth/me')
       .then((res) => res.json())
       .then((data) => {
         if (!isMounted) return;
-        if (data?.user?.role === 'estate_staff') {
+        if (data?.user) {
           setUser(data.user);
-          setAuthorized(true);
-        } else {
-          router.replace('/dashboard');
         }
       })
-      .catch(() => {
-        if (isMounted) router.replace('/dashboard');
-      });
+      .catch(() => {});
 
     return () => {
       isMounted = false;
     };
-  }, [router]);
+  }, []);
 
-  // 2. Debounce search input typing by 300 ms
+  // 2. Fetch global summary counts (unaffected by search)
+  const fetchSummaryCounts = useCallback(() => {
+    fetch('/api/tickets')
+      .then(async (res) => {
+        if (!res.ok) {
+          if (res.status === 403) {
+            setError("You don't have access");
+          }
+          return null;
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (data?.counts) {
+          setSummaryCounts(data.counts);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchSummaryCounts();
+  }, [fetchSummaryCounts]);
+
+  // 3. Debounce search input typing by 300 ms
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchInput);
@@ -81,9 +98,8 @@ export default function EstateDashboardPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // 3. Fetch tickets with in-flight abort
+  // 4. Fetch filtered tickets with in-flight request cancellation
   const fetchTickets = useCallback(() => {
-    // Abort any prior in-flight request so older responses never overwrite newer ones
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -97,7 +113,7 @@ export default function EstateDashboardPage() {
       .then(async (res) => {
         if (!res.ok) {
           if (res.status === 403) {
-            router.replace('/dashboard');
+            setError("You don't have access");
             return null;
           }
           const errData = await res.json().catch(() => ({}));
@@ -110,12 +126,15 @@ export default function EstateDashboardPage() {
         setTickets(data.tickets ?? []);
         if (data.counts) {
           setCounts(data.counts);
+          // If no search filter is active, sync global summary counts as well
+          if (!trimmed) {
+            setSummaryCounts(data.counts);
+          }
         }
         setError(null);
       })
       .catch((err) => {
         if (err.name === 'AbortError') {
-          // Expected when request is replaced by a newer one
           return;
         }
         setError(err.message || 'Unable to load tickets.');
@@ -125,21 +144,18 @@ export default function EstateDashboardPage() {
           setLoading(false);
         }
       });
-  }, [statusFilter, debouncedSearch, router]);
+  }, [statusFilter, debouncedSearch]);
 
-  // Trigger fetch when authorized, status filter, or debounced search changes
   useEffect(() => {
-    if (authorized) {
-      fetchTickets();
-    }
+    fetchTickets();
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
-  }, [authorized, fetchTickets]);
+  }, [fetchTickets]);
 
-  // 4. Resolve ticket action
+  // 5. Resolve ticket action
   const handleResolveTicket = async (ticketId) => {
     setActionError(null);
     setResolvingId(ticketId);
@@ -158,8 +174,9 @@ export default function EstateDashboardPage() {
       setSuccessNotice(`Ticket #${ticketId} marked as resolved.`);
       setTimeout(() => setSuccessNotice(''), 4000);
 
-      // Refresh tickets list and counts
+      // Refresh both the tickets table and the global summary counts
       fetchTickets();
+      fetchSummaryCounts();
     } catch (err) {
       setActionError(err.message || 'Error resolving ticket.');
     } finally {
@@ -167,67 +184,74 @@ export default function EstateDashboardPage() {
     }
   };
 
-  const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/');
-    router.refresh();
-  };
-
-  // Render nothing until staff authentication check finishes (prevents student page flash)
-  if (!authorized) {
-    return null;
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
-      {/* Navbar */}
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="flex items-baseline group">
-              <span className="font-extrabold text-2xl text-orange-500">U</span>
-              <span className="font-extrabold text-2xl text-slate-900 group-hover:text-orange-600 transition-colors">
-                NS
-              </span>
-            </Link>
-            <span className="text-xs text-slate-500 font-semibold tracking-wider uppercase border-l border-slate-300 pl-3 hidden sm:inline">
-              Estate Management Portal
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard"
-              className="text-xs font-semibold px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-            >
-              &larr; Campus Map
-            </Link>
-            <span className="text-sm text-slate-600 hidden md:inline">
-              Staff: <strong className="text-slate-800 font-mono">{user?.registrationNo}</strong>
-            </span>
-            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-              Estate Staff
-            </span>
-            <button
-              onClick={handleLogout}
-              className="text-sm px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg transition cursor-pointer"
-            >
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* Navbar using shared DashboardHeader */}
+      <DashboardHeader user={user} />
 
       {/* Main Page Area */}
-      <main className="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-5">
+      <main className="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-6">
         {/* Title Bar */}
         <div>
           <h1 className="text-2xl font-bold text-slate-800">
-            Barrier & Maintenance Tickets
+            Estate Resolution Dashboard
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Review, filter, and resolve accessibility obstacle reports across campus.
+            Review, search and resolve accessibility issues reported on campus.
           </p>
+        </div>
+
+        {/* Row of Three Summary Cards (Overall counts, unaffected by search) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Total Tickets Card */}
+          <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Total Tickets
+              </span>
+              <span className="text-lg" aria-hidden="true">📋</span>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-slate-800">
+                {summaryCounts.all}
+              </span>
+              <span className="text-xs text-slate-500 font-medium">all-time reported</span>
+            </div>
+          </div>
+
+          {/* Pending Card */}
+          <div className="bg-white border border-orange-200 rounded-lg p-5 shadow-2xs bg-gradient-to-br from-white to-orange-50/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-orange-600 uppercase tracking-wider">
+                Pending
+              </span>
+              <span className="w-2.5 h-2.5 rounded-full bg-orange-500 animate-pulse" aria-hidden="true" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-orange-600">
+                {summaryCounts.pending}
+              </span>
+              <span className="text-xs text-orange-600/80 font-medium">action needed</span>
+            </div>
+          </div>
+
+          {/* Resolved Card */}
+          <div className="bg-white border border-green-200 rounded-lg p-5 shadow-2xs bg-gradient-to-br from-white to-green-50/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-green-700 uppercase tracking-wider">
+                Resolved
+              </span>
+              <span className="text-xs font-bold text-green-700 px-2 py-0.5 rounded-full bg-green-100" aria-hidden="true">
+                ✓ Fixed
+              </span>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-3xl font-extrabold text-green-700">
+                {summaryCounts.resolved}
+              </span>
+              <span className="text-xs text-green-700/80 font-medium">issues restored</span>
+            </div>
+          </div>
         </div>
 
         {/* Feedback Notices */}
@@ -356,18 +380,23 @@ export default function EstateDashboardPage() {
         {/* Error State with Retry button */}
         {error && !loading && (
           <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-            <p className="text-sm font-semibold text-red-700 mb-1">Unable to load tickets</p>
+            <p className="text-sm font-semibold text-red-700 mb-1">
+              {error === "You don't have access" ? 'Access Denied' : 'Unable to load tickets'}
+            </p>
             <p className="text-xs text-red-600 mb-3">{error}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoading(true);
-                fetchTickets();
-              }}
-              className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded-md transition cursor-pointer"
-            >
-              Retry
-            </button>
+            {error !== "You don't have access" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLoading(true);
+                  fetchTickets();
+                  fetchSummaryCounts();
+                }}
+                className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded-md transition cursor-pointer"
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 

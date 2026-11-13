@@ -29,7 +29,26 @@ export default function LoginPage() {
         throw new Error(data.error || 'Invalid credentials');
       }
 
-      router.push('/dashboard');
+      let userRole = data?.role;
+
+      // Fallback: fetch /api/auth/me if login response didn't include the role
+      if (!userRole) {
+        try {
+          const meRes = await fetch('/api/auth/me');
+          if (meRes.ok) {
+            const meData = await meRes.json();
+            userRole = meData?.user?.role;
+          }
+        } catch {
+          // Fallback to default
+        }
+      }
+
+      if (userRole === 'estate_staff') {
+        router.push('/dashboard/estate');
+      } else {
+        router.push('/dashboard');
+      }
       router.refresh();
     } catch (err) {
       setError(err.message);

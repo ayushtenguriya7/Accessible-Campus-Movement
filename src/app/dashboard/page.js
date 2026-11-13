@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import RouteFinderCard from '../../components/RouteFinderCard';
 import BuildingAccessibilityCard from '../../components/BuildingAccessibilityCard';
+import DashboardHeader from '../../components/DashboardHeader';
 import { useRouteFinder } from '../../hooks/useRouteFinder';
 
 // Dynamic import with SSR disabled for Leaflet map
@@ -20,7 +19,6 @@ const CampusMap = dynamic(() => import('../../components/CampusMap'), {
 });
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [user, setUser] = useState(null);
   // Module 1: source/destination selection + route search state shared by the map and the route card
   const routeFinder = useRouteFinder();
@@ -115,53 +113,10 @@ export default function DashboardPage() {
     loadBuildings({ background: true });
   }, [loadBuildings]);
 
-  const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/');
-    router.refresh();
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
       {/* Navbar */}
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex items-baseline">
-              <span className="font-extrabold text-2xl text-orange-500">U</span>
-              <span className="font-extrabold text-2xl text-slate-900">NS</span>
-            </div>
-            <span className="text-xs text-slate-500 font-semibold tracking-wider uppercase border-l border-slate-300 pl-3 hidden sm:inline">
-              University Navigation System
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {user?.role === 'estate_staff' && (
-              <Link
-                href="/dashboard/estate"
-                className="text-xs font-semibold px-3 py-1.5 bg-orange-50 text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-100 transition"
-              >
-                Estate Tickets
-              </Link>
-            )}
-            <span className="text-sm text-slate-600">
-              Reg No: <strong className="text-slate-800 font-mono">{user?.registrationNo || '11111111'}</strong>
-            </span>
-            {user?.role && (
-              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                {user.role === 'estate_staff' ? 'Estate Staff' : 'Student'}
-              </span>
-            )}
-            <button
-              onClick={handleLogout}
-              className="text-sm px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg transition cursor-pointer"
-            >
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </header>
+      <DashboardHeader user={user} />
 
       {/* Main Page Area */}
       <main className="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-6">
@@ -189,37 +144,9 @@ export default function DashboardPage() {
             mobile: stacked | lg+: left 2/3 actions + right 1/3 accessibility panel */}
         <div className="flex flex-col lg:flex-row gap-4 items-start">
 
-          {/* Left: action cards grid (equal share across two columns on md+) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full lg:flex-1">
+          {/* Left: Find Accessible Route card */}
+          <div className="w-full lg:flex-1">
             <RouteFinderCard finder={routeFinder} />
-
-            {user?.role === 'estate_staff' ? (
-              <Link
-                href="/dashboard/estate"
-                className="bg-white border border-slate-200 rounded-lg p-5 hover:border-orange-300 hover:shadow-xs transition block group"
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="font-semibold text-slate-800 text-sm group-hover:text-orange-600 transition-colors">
-                    Resolution Updates
-                  </h3>
-                  <span className="text-xs text-orange-500 font-semibold group-hover:translate-x-0.5 transition-transform">
-                    &rarr;
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Track estate team clearance and maintenance tickets.
-                </p>
-              </Link>
-            ) : (
-              <div className="bg-white border border-slate-200 rounded-lg p-5">
-                <h3 className="font-semibold text-slate-800 text-sm mb-1">
-                  Resolution Updates
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Track estate team clearance and maintenance tickets.
-                </p>
-              </div>
-            )}
           </div>
 
           {/* Right: building accessibility panel */}

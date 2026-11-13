@@ -210,3 +210,42 @@ SET
 WHERE b.name = 'Block 34';
 ```
 
+---
+
+## 8. Role-Based Dashboards & Access Routing
+
+The platform enforces strict separation between student accessibility navigation and estate maintenance operations:
+
+### Test Accounts (Development & Seeded Users)
+
+| Role | Registration No | Password | Accepted Fallback | Purpose & Primary Destination |
+|---|---|---|---|---|
+| **Student** | `11111111` | `student123` | `11111111` | Campus navigation, route planning, obstacle reporting (`/dashboard`) |
+| **Estate Staff** | `22222222` | `staff123` | `22222222` | Ticket tracking, search/filters, resolution workflow (`/dashboard/estate`) |
+
+### Who Sees What: The Two Dashboards
+
+1. **Student Dashboard (`/dashboard`)**:
+   - **Accessible To**: `student` role only.
+   - **Features**: Interactive Leaflet campus map, accessible route planner (`RouteFinderCard`), building accessibility status table (`BuildingAccessibilityCard`), and modal dialog to report broken lifts, blocked ramps, or closed stairs.
+   - **Exclusions**: No estate tickets table, no resolution controls, no link to staff areas.
+
+2. **Estate Resolution Dashboard (`/dashboard/estate`)**:
+   - **Accessible To**: `estate_staff` role only.
+   - **Features**: Three top summary cards (Total Tickets, Pending, Resolved) showing global numbers unaffected by search; building name search bar (300ms debounce, abort in-flight); status filter buttons (`All`, `Pending`, `Resolved`) with dynamic badges; full tickets table; and inline two-step confirmation to resolve tickets and restore building facility counts.
+   - **Exclusions**: No campus map, no route finder, no building accessibility card.
+
+### Role-Redirect Matrix (`src/middleware.js`)
+
+| User State / Role | Requested Path | Action / Redirect Target | Notes |
+|---|---|---|---|
+| **Unauthenticated / Expired** | `/` | Allow (Login page) | Public access |
+| **Unauthenticated / Expired** | `/dashboard/:path*` | Redirect to `/` | Deletes expired cookie |
+| **Student** (`student`) | `/` | Redirect to `/dashboard` | Direct to student portal |
+| **Student** (`student`) | `/dashboard` | Allow | Student Campus Navigation & Reporting |
+| **Student** (`student`) | `/dashboard/estate/:path*` | Redirect to `/dashboard` | Guarded against student access |
+| **Estate Staff** (`estate_staff`) | `/` | Redirect to `/dashboard/estate` | Direct to staff resolution portal |
+| **Estate Staff** (`estate_staff`) | `/dashboard` | Redirect to `/dashboard/estate` | Auto-routed to staff portal |
+| **Estate Staff** (`estate_staff`) | `/dashboard/estate` | Allow | Estate Resolution Dashboard |
+
+

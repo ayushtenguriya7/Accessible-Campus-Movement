@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/session';
-import { getPool } from '@/lib/db';
+import { getPool, query } from '@/lib/db';
 
 // Fixed whitelist map: maps featureType to database column name.
 // User input is never inserted directly into SQL text.
@@ -224,6 +224,149 @@ export async function POST(request) {
     if (client) {
       client.release();
     }
+  }
+}
+
+/**
+ * GET /api/tickets
+ * Lists tickets with building details for estate staff members.
+ * Supports status filtering ('All', 'Pending', 'Resolved') and case-insensitive building search.
+ * Returns { tickets: [...], counts: { all, pending, resolved } }.
+ */
+export async function GET(request) {
+  // Step 1: Authentication & Authorization (estate_staff only)
+  const auth = await requireUser(request, ['estate_staff']);
+  if (auth.error) {
+    return auth.error;
+  }
+
+  // Step 2: Parse and sanitize query parameters
+  const { searchParams } = new URL(request.url);
+  const rawStatus = searchParams.get('status');
+  const allowedStatuses = ['All', 'Pending', 'Resolved'];
+  const status = allowedStatuses.includes(rawStatus) ? rawStatus : 'All';
+
+  const rawSearch = searchParams.get('search') || '';
+  const trimmedSearch = rawSearch.trim();
+
+  // Escape %, _ and \ in search query so they are treated literally by ILIKE
+  const hasSearch = trimmedSearch.length > 0;
+  const escapedSearch = hasSearch
+    ? trimmedSearch.replace(/[%_\\]/g, (char) => `\\${char}`)
+    : '';
+  const searchPattern = `%${escapedSearch}%`;
+
+  // Step 3: Build parameterized SQL queries for tickets and counts
+  const ticketConditions = [];
+  const ticketParams = [];
+
+  if (hasSearch) {
+    ticketParams.push(searchPattern);
+    ticketConditions.push(`b.name ILIKE $${ticketParams.length}`);
+  }
+
+  if (status === 'Pending' || status === 'Resolved') {
+    ticketParams.push(status);
+    ticketConditions.push(`t.status = $${ticketParams.length}`);
+  }
+
+  const ticketWhereClause = ticketConditions.length > 0
+    ? `WHERE ${ticketConditions.join(' AND ')}`
+    : '';
+
+  const ticketsQuery = `
+    SELECT
+      t.id,
+      t.building_id,
+      b.name AS building_name,
+      t.feature_type,
+      t.description,
+      t.status,
+      t.reported_by,
+      t.created_at,
+      t.resolved_at,
+      t.resolved_by
+    FROM tickets t
+    JOIN buildings b ON b.id = t.building_id
+    ${ticketWhereClause}
+    ORDER BY t.created_at DESC, t.id DESC
+    LIMIT 200
+  `;
+
+  // Counts query respects search but ignores the status filter
+  const countConditions = [];
+  const countParams = [];
+
+  if (hasSearch) {
+    countParams.push(searchPattern);
+    countConditions.push(`b.name ILIKE $${countParams.length}`);
+  }
+
+  const countWhereClause = countConditions.length > 0
+    ? `WHERE ${countConditions.join(' AND ')}`
+    : '';
+
+  const countQuery = `
+    SELECT
+      COUNT(*)::int AS all,
+      COUNT(*) FILTER (WHERE t.status = 'Pending')::int AS pending,
+      COUNT(*) FILTER (WHERE t.status = 'Resolved')::int AS resolved
+    FROM tickets t
+    JOIN buildings b ON b.id = t.building_id
+    ${countWhereClause}
+  `;
+
+  // Step 4: Execute queries against database
+  try {
+    const [ticketResult, countResult] = await Promise.all([
+      query(ticketsQuery, ticketParams),
+      query(countQuery, countParams),
+    ]);
+
+    const tickets = ticketResult.rows.map((row) => ({
+      id: row.id,
+      buildingId: row.building_id,
+      buildingName: row.building_name,
+      featureType: row.feature_type,
+      description: row.description,
+      status: row.status,
+      reportedBy: row.reported_by,
+      createdAt: row.created_at,
+      resolvedAt: row.resolved_at,
+      resolvedBy: row.resolved_by,
+      // Field aliases for compatibility
+      building_id: row.building_id,
+      building_name: row.building_name,
+      feature_type: row.feature_type,
+      reported_by: row.reported_by,
+      created_at: row.created_at,
+      resolved_at: row.resolved_at,
+      resolved_by: row.resolved_by,
+    }));
+
+    const countRow = countResult.rows[0] || {};
+    const counts = {
+      all: Number(countRow.all || 0),
+      pending: Number(countRow.pending || 0),
+      resolved: Number(countRow.resolved || 0),
+    };
+
+    return NextResponse.json({ tickets, counts });
+  } catch (err) {
+    const errorCode = err?.code || err?.cause?.code;
+    if (['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'].includes(errorCode)) {
+      console.error('[GET /api/tickets] Database connection error:', err);
+      return NextResponse.json(
+        { error: 'The database is unreachable. Please try again.' },
+        { status: 503 }
+      );
+    }
+
+    console.error('[GET /api/tickets]', err);
+    return NextResponse.json(
+      { error: 'An unexpected server error occurred while loading tickets.' },
+      { status: 500 }
+    );
   }
 }
 

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import RouteFinderCard from '../../components/RouteFinderCard';
 import BuildingAccessibilityCard from '../../components/BuildingAccessibilityCard';
@@ -73,23 +74,46 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  // Fetch building accessibility data once on mount
-  useEffect(() => {
-    fetch('/api/buildings')
+  // Reusable building data fetcher
+  const loadBuildings = useCallback(({ background = false } = {}) => {
+    return fetch('/api/buildings')
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load building data');
         return res.json();
       })
       .then((data) => {
         setBuildings(data.buildings ?? []);
+        setError(null);
       })
       .catch((err) => {
-        setError(err.message || 'Unable to load building accessibility data. Please try again later.');
+        if (!background) {
+          setError(err.message || 'Unable to load building accessibility data. Please try again later.');
+        }
       })
       .finally(() => {
-        setLoading(false);
+        if (!background) {
+          setLoading(false);
+        }
       });
   }, []);
+
+  // Fetch building accessibility data once on mount
+  useEffect(() => {
+    loadBuildings();
+  }, [loadBuildings]);
+
+  // Handle immediate local update & background re-sync when an issue is reported
+  const handleReported = useCallback((updatedBuilding) => {
+    if (!updatedBuilding) return;
+
+    // 1. Immediately replace the building in state without a reload or loading flash
+    setBuildings((prev) =>
+      prev.map((b) => (b.id === updatedBuilding.id ? updatedBuilding : b))
+    );
+
+    // 2. Re-fetch in background to stay synchronized with other users
+    loadBuildings({ background: true });
+  }, [loadBuildings]);
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -113,6 +137,14 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-4">
+            {user?.role === 'estate_staff' && (
+              <Link
+                href="/dashboard/estate"
+                className="text-xs font-semibold px-3 py-1.5 bg-orange-50 text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-100 transition"
+              >
+                Estate Tickets
+              </Link>
+            )}
             <span className="text-sm text-slate-600">
               Reg No: <strong className="text-slate-800 font-mono">{user?.registrationNo || '11111111'}</strong>
             </span>
@@ -123,7 +155,7 @@ export default function DashboardPage() {
             )}
             <button
               onClick={handleLogout}
-              className="text-sm px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg transition"
+              className="text-sm px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg transition cursor-pointer"
             >
               Sign Out
             </button>
@@ -157,27 +189,37 @@ export default function DashboardPage() {
             mobile: stacked | lg+: left 2/3 actions + right 1/3 accessibility panel */}
         <div className="flex flex-col lg:flex-row gap-4 items-start">
 
-          {/* Left: existing three-card grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full lg:flex-1">
+          {/* Left: action cards grid (equal share across two columns on md+) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full lg:flex-1">
             <RouteFinderCard finder={routeFinder} />
 
-            <div className="bg-white border border-slate-200 rounded-lg p-5">
-              <h3 className="font-semibold text-slate-800 text-sm mb-1">
-                Report a Barrier
-              </h3>
-              <p className="text-xs text-slate-500">
-                Submit reports for blocked ramps, locked gates, or broken lifts.
-              </p>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-lg p-5">
-              <h3 className="font-semibold text-slate-800 text-sm mb-1">
-                Resolution Updates
-              </h3>
-              <p className="text-xs text-slate-500">
-                Track estate team clearance and maintenance tickets.
-              </p>
-            </div>
+            {user?.role === 'estate_staff' ? (
+              <Link
+                href="/dashboard/estate"
+                className="bg-white border border-slate-200 rounded-lg p-5 hover:border-orange-300 hover:shadow-xs transition block group"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="font-semibold text-slate-800 text-sm group-hover:text-orange-600 transition-colors">
+                    Resolution Updates
+                  </h3>
+                  <span className="text-xs text-orange-500 font-semibold group-hover:translate-x-0.5 transition-transform">
+                    &rarr;
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Track estate team clearance and maintenance tickets.
+                </p>
+              </Link>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-lg p-5">
+                <h3 className="font-semibold text-slate-800 text-sm mb-1">
+                  Resolution Updates
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Track estate team clearance and maintenance tickets.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Right: building accessibility panel */}
@@ -251,7 +293,10 @@ export default function DashboardPage() {
                   </p>
                 </div>
               ) : (
-                <BuildingAccessibilityCard building={selectedBuilding} />
+                <BuildingAccessibilityCard
+                  building={selectedBuilding}
+                  onReported={handleReported}
+                />
               )
             )}
           </div>

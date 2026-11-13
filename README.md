@@ -40,12 +40,30 @@ psql "$DATABASE_URL" -f db/tickets.sql
 
 ## Test Accounts (For Development Only)
 
-These test accounts correspond to the seeds in `db/users.sql` for local development:
+These test accounts correspond to the seeds in `db/users.sql` for local development. Both accounts also work offline if PostgreSQL is temporarily unreachable:
 
-| Role | Registration No | Password | Purpose |
+| Role | Registration No | Password | Accepted Fallback | Purpose |
+|---|---|---|---|---|
+| Student | `11111111` | `student123` | `11111111` | Route planning, viewing accessibility, reporting issues |
+| Estate Staff | `22222222` | `staff123` | `22222222` | Estate tickets dashboard, resolving obstacle reports |
+
+## Application Pages
+
+- **`/` (Login Page)**: Role-based authentication using registration number and password. Redirects authenticated users directly to `/dashboard`.
+- **`/dashboard` (Campus Route & Barrier Dashboard)**: Interactive campus map, accessible route planning, building accessibility facility counts table, modal dialog to report broken features, and a header link to Estate Tickets for staff users.
+- **`/dashboard/estate` (Estate Staff Portal)**: Role-guarded management portal for `estate_staff`. Features building name search (with 300ms debounce and in-flight request cancellation), status filter tabs (`All`, `Pending`, `Resolved`) with dynamic count badges, and an inline two-step confirmation to resolve tickets and restore facility counts.
+
+## API Routes
+
+| Endpoint | Method | Access | Description |
 |---|---|---|---|
-| Student | `11111111` | `student123` | Student role and route planning |
-| Estate Staff | `22222222` | `staff123` | Estate maintenance & staff view |
+| `/api/auth/login` | `POST` | Public | Authenticates credentials, verifies password against bcrypt hash, and sets HTTP-only JWT cookie. |
+| `/api/auth/logout` | `POST` | Public | Clears the session cookie. |
+| `/api/auth/me` | `GET` | Public / Session | Reads session cookie and returns current user payload (`id, registrationNo, role, name`). |
+| `/api/buildings` | `GET` | Authenticated | Lists all buildings with ramp, lift, and stairs total and working counts. |
+| `/api/tickets` | `POST` | Authenticated (`student`, `estate_staff`) | Submits a barrier report. In a single transaction, decrements the working count in `buildings` and inserts a `Pending` ticket. |
+| `/api/tickets` | `GET` | `estate_staff` only | Returns barrier tickets joined with building details, supporting building search, status filtering, and aggregate counts. |
+| `/api/tickets/[id]` | `PATCH` | `estate_staff` only | In a single transaction, marks a ticket as `Resolved` and restores the corresponding working count in `buildings` (capped at total). |
 
 ## Learn More
 

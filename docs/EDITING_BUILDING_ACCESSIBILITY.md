@@ -124,3 +124,89 @@ FROM buildings
 WHERE campus_key = 'sample-4';
 ```
 
+---
+
+## 7. Tickets & Dynamic Facility Status
+
+Student obstacle reports and estate maintenance work dynamically adjust facility working counts in the database.
+
+### How Reporting Changes Building Counts
+- When a user submits an obstacle report via `POST /api/tickets`, a database transaction:
+  1. Lowers the matching column (`ramps_working`, `lifts_working`, or `stairs_working`) in the `buildings` table by `1` (only if the count is currently `> 0`).
+  2. Inserts a new record in `tickets` with `status = 'Pending'` and `reported_by = user.registrationNo`.
+  3. Returns `409 Conflict` if all units are already reported as broken or if the user already filed a pending report for that feature.
+
+### How Resolving Restores Facility Counts
+- When an estate staff member resolves an issue via `PATCH /api/tickets/[id]`:
+  1. Sets ticket `status = 'Resolved'`, `resolved_at = now()`, and `resolved_by = staff.registrationNo`.
+  2. Restores one working unit to the building, capped at its total using SQL `LEAST`:
+     ```sql
+     UPDATE buildings
+     SET lifts_working = LEAST(lifts_total, lifts_working + 1)
+     WHERE id = $1;
+     ```
+
+### Database Script Run Order
+When creating or re-initializing the database schema, run scripts in this exact sequence:
+
+1. `db/users.sql` — Creates `users` table and development test accounts.
+2. `db/buildings.sql` — Creates `buildings` table and seeds facility counts.
+3. `db/tickets.sql` — Creates `tickets` table (references `buildings.id`), indexes, and sample reports.
+
+```bash
+psql "$DATABASE_URL" -f db/users.sql
+psql "$DATABASE_URL" -f db/buildings.sql
+psql "$DATABASE_URL" -f db/tickets.sql
+```
+
+### Useful SQL Queries
+
+#### List tickets by status
+```sql
+-- All pending tickets with building names
+SELECT t.id, b.name AS building, t.feature_type, t.description, t.reported_by, t.created_at
+FROM tickets t
+JOIN buildings b ON b.id = t.building_id
+WHERE t.status = 'Pending'
+ORDER BY t.created_at DESC;
+
+-- All resolved tickets with resolution details
+SELECT t.id, b.name AS building, t.feature_type, t.resolved_by, t.resolved_at
+FROM tickets t
+JOIN buildings b ON b.id = t.building_id
+WHERE t.status = 'Resolved'
+ORDER BY t.resolved_at DESC;
+
+-- Total ticket counts grouped by status
+SELECT status, COUNT(*) AS count
+FROM tickets
+GROUP BY status;
+```
+
+#### Fix a count by hand if a test left it wrong
+If test API calls or interrupted transactions leave a facility count mismatched in PostgreSQL, adjust it directly with an `UPDATE`:
+
+```sql
+-- Manually reset working counts for a specific building:
+UPDATE buildings
+SET lifts_working = 1, ramps_working = 1, stairs_working = 2
+WHERE name = 'Block 34';
+
+-- Or automatically recalculate working counts from total minus active pending tickets:
+UPDATE buildings b
+SET
+  ramps_working = b.ramps_total - (
+    SELECT COUNT(*) FROM tickets t
+    WHERE t.building_id = b.id AND t.feature_type = 'Ramp' AND t.status = 'Pending'
+  ),
+  lifts_working = b.lifts_total - (
+    SELECT COUNT(*) FROM tickets t
+    WHERE t.building_id = b.id AND t.feature_type = 'Lift' AND t.status = 'Pending'
+  ),
+  stairs_working = b.stairs_total - (
+    SELECT COUNT(*) FROM tickets t
+    WHERE t.building_id = b.id AND t.feature_type = 'Stairs' AND t.status = 'Pending'
+  )
+WHERE b.name = 'Block 34';
+```
+

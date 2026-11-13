@@ -47,6 +47,7 @@ export default function CampusMap({
 
   barrierLocations = [],
   barrierLocation = null,
+  focusedLocation = null,
 
   resetToken = 0,
 
@@ -348,6 +349,18 @@ export default function CampusMap({
       DEFAULT_ZOOM
     );
   }, [mapReady, resetToken]);
+
+  // Pan and zoom to focused location (e.g. when staff clicks "View on Map")
+  useEffect(() => {
+    const ctx = leaflet.current;
+
+    if (!mapReady || !ctx || !focusedLocation) return;
+
+    const [lat, lng] = focusedLocation;
+    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+      ctx.map.setView([Number(lat), Number(lng)], 18, { animate: true });
+    }
+  }, [mapReady, focusedLocation]);
 
   return (
     <div

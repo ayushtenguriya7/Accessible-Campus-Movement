@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 
 import RouteFinderCard from "../../components/RouteFinderCard";
 import BuildingAccessibilityCard from "../../components/BuildingAccessibilityCard";
+import EstateAdminDashboard from "../../components/EstateAdminDashboard";
 import { useRouteFinder } from "../../hooks/useRouteFinder";
 
 // Dynamic import with SSR disabled for Leaflet map
@@ -41,6 +42,8 @@ export default function DashboardPage() {
   const [submittingReport, setSubmittingReport] = useState(false);
   const [barrierMessage, setBarrierMessage] = useState("");
   const [barrierError, setBarrierError] = useState("");
+  const [activeTab, setActiveTab] = useState("map");
+  const [focusedLocation, setFocusedLocation] = useState(null);
 
   const isDestinationMode = Boolean(routeFinder.destinationId);
 
@@ -192,6 +195,28 @@ export default function DashboardPage() {
     }
   };
 
+  const handleUpdateReportStatus = async (reportId, newStatus) => {
+    try {
+      const response = await fetch(`/api/barriers/${reportId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (response.ok) {
+        await fetchBarrierReports();
+      }
+    } catch (err) {
+      console.error("Failed to update barrier status:", err);
+    }
+  };
+
+  const handleViewOnMap = (report) => {
+    if (report?.latitude && report?.longitude) {
+      setFocusedLocation([Number(report.latitude), Number(report.longitude)]);
+      setActiveTab("map");
+    }
+  };
+
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
@@ -240,18 +265,63 @@ export default function DashboardPage() {
 
       {/* Main Page */}
       <main className="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">
-            Campus Route & Barrier Dashboard
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Accessible pathways, obstacle reports, and maintenance updates
-            across campus.
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">
+              Campus Route & Barrier Dashboard
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Accessible pathways, obstacle reports, and maintenance updates
+              across campus.
+            </p>
+          </div>
+
+          {user?.role === "estate_staff" && (
+            <div className="flex items-center bg-slate-200/80 p-1 rounded-xl self-start sm:self-auto border border-slate-300">
+              <button
+                type="button"
+                onClick={() => setActiveTab("map")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  activeTab === "map"
+                    ? "bg-white text-slate-800 shadow-sm"
+                    : "text-slate-600 hover:text-slate-800"
+                }`}
+              >
+                <span>🗺️</span>
+                <span>Map & Routes</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("admin")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  activeTab === "admin"
+                    ? "bg-white text-slate-800 shadow-sm"
+                    : "text-slate-600 hover:text-slate-800"
+                }`}
+              >
+                <span>🛡️</span>
+                <span>Estate Console</span>
+                {barrierReports.filter((r) => r.status === "pending").length > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold ml-0.5">
+                    {barrierReports.filter((r) => r.status === "pending").length}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Campus Map */}
-        <div className="w-full min-h-[480px]">
+        {activeTab === "admin" && user?.role === "estate_staff" ? (
+          <EstateAdminDashboard
+            reports={barrierReports}
+            onReportUpdated={fetchBarrierReports}
+            onViewOnMap={handleViewOnMap}
+            user={user}
+          />
+        ) : (
+          <>
+            {/* Campus Map */}
+            <div className="w-full min-h-[480px]">
           <CampusMap
             buildings={routeFinder.buildings}
             sourceId={routeFinder.sourceId}
@@ -263,7 +333,12 @@ export default function DashboardPage() {
                 : null
             }
             detourCoordinates={routeFinder.route?.detourCoordinates ?? null}
-            barrierLocations={routeFinder.route?.activeBarrierReports ?? []}
+            barrierLocations={
+              routeFinder.route?.activeBarrierReports?.length
+                ? routeFinder.route.activeBarrierReports
+                : barrierReports.filter((r) => r.status !== "resolved")
+            }
+            focusedLocation={focusedLocation}
             resetToken={routeFinder.resetCount}
             isPickingBarrierLocation={isPickingBarrierLocation}
             onBarrierLocationSelect={handleBarrierLocationSelect}
@@ -443,20 +518,53 @@ export default function DashboardPage() {
                         {report.description}
                       </p>
 
-                      <span
-                        className={`inline-block mt-2 text-[10px] font-semibold px-2 py-1 rounded-full ${
-                          report.status === "resolved"
-                            ? "bg-green-100 text-green-700"
-                            : report.status === "in_progress"
-                              ? "bg-yellow-100 text-yellow-700"
-                              : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {report.status?.replaceAll("_", " ") || "pending"}
-                      </span>
+                      <div className="flex items-center justify-between gap-2 mt-2">
+                        <span
+                          className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            report.status === "resolved"
+                              ? "bg-green-100 text-green-700"
+                              : report.status === "in_progress"
+                                ? "bg-yellow-100 text-yellow-700"
+                                : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {report.status?.replaceAll("_", " ") || "pending"}
+                        </span>
+
+                        {user?.role === "estate_staff" && report.status !== "resolved" && (
+                          <div className="flex items-center gap-1">
+                            {report.status === "pending" && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateReportStatus(report.id, "in_progress")}
+                                className="text-[10px] px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-800 font-semibold transition"
+                              >
+                                Start Work
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateReportStatus(report.id, "resolved")}
+                              className="text-[10px] px-2 py-0.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-semibold transition"
+                            >
+                              Resolve
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
+              )}
+
+              {user?.role === "estate_staff" && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("admin")}
+                  className="w-full mt-3 text-xs text-orange-600 hover:text-orange-700 font-semibold border border-orange-200 bg-orange-50/60 hover:bg-orange-100/60 rounded-lg py-1.5 transition text-center block"
+                >
+                  Open Estate Console →
+                </button>
               )}
             </div>
           </div>
@@ -551,7 +659,9 @@ export default function DashboardPage() {
               ))}
           </div>
         </div>
-      </main>
+      </>
+    )}
+  </main>
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">

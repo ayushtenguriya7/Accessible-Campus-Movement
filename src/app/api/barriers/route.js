@@ -9,7 +9,7 @@ async function getUser(request) {
   return await verifyToken(token);
 }
 
-// GET: Fetch barrier reports
+// GET: Fetch all barrier reports
 export async function GET(request) {
   const user = await getUser(request);
 
@@ -23,8 +23,6 @@ export async function GET(request) {
         id,
         reporter_id AS "reporterId",
         reporter_name AS "reporterName",
-        source_building_id AS "sourceBuildingId",
-        destination_building_id AS "destinationBuildingId",
         barrier_type AS "barrierType",
         description,
         latitude,
@@ -39,6 +37,7 @@ export async function GET(request) {
     return NextResponse.json({ reports: result.rows });
   } catch (error) {
     console.error("[GET /api/barriers]", error);
+
     return NextResponse.json(
       { error: "Unable to fetch barrier reports" },
       { status: 500 },
@@ -46,7 +45,7 @@ export async function GET(request) {
   }
 }
 
-// POST: Submit a new barrier report
+// POST: Submit a barrier report without source/destination
 export async function POST(request) {
   const user = await getUser(request);
 
@@ -57,22 +56,15 @@ export async function POST(request) {
   try {
     const body = await request.json();
 
-    const {
-      sourceBuildingId,
-      destinationBuildingId,
-      barrierType,
-      description,
-      latitude,
-      longitude,
-    } = body;
+    const { barrierType, description, latitude, longitude } = body;
 
     if (
-      !sourceBuildingId ||
-      !destinationBuildingId ||
-      sourceBuildingId === destinationBuildingId ||
-      !barrierType ||
+      typeof barrierType !== "string" ||
+      !barrierType.trim() ||
       !description?.trim() ||
       description.trim().length > 1000 ||
+      typeof latitude !== "number" ||
+      typeof longitude !== "number" ||
       !Number.isFinite(latitude) ||
       !Number.isFinite(longitude) ||
       latitude < -90 ||
@@ -97,18 +89,16 @@ export async function POST(request) {
       `INSERT INTO barrier_reports (
         reporter_id,
         reporter_name,
-        source_building_id,
-        destination_building_id,
         barrier_type,
         description,
         latitude,
         longitude
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING
         id,
-        source_building_id AS "sourceBuildingId",
-        destination_building_id AS "destinationBuildingId",
+        reporter_id AS "reporterId",
+        reporter_name AS "reporterName",
         barrier_type AS "barrierType",
         description,
         latitude,
@@ -118,9 +108,7 @@ export async function POST(request) {
       [
         user.id,
         user.name,
-        sourceBuildingId,
-        destinationBuildingId,
-        barrierType,
+        barrierType.trim(),
         description.trim(),
         latitude,
         longitude,
@@ -128,11 +116,15 @@ export async function POST(request) {
     );
 
     return NextResponse.json(
-      { message: "Barrier reported successfully.", report: result.rows[0] },
+      {
+        message: "Barrier reported successfully.",
+        report: result.rows[0],
+      },
       { status: 201 },
     );
   } catch (error) {
     console.error("[POST /api/barriers]", error);
+
     return NextResponse.json(
       { error: "Unable to submit barrier report." },
       { status: 500 },

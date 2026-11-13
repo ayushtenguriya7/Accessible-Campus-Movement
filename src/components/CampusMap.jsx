@@ -223,14 +223,13 @@ export default function CampusMap({
 
     if (blockedRouteCoordinates?.length) {
       const blockedLine = L.polyline(
-        blockedRouteCoordinates,
-        {
-          color: '#dc2626',
-          weight: 6,
-          opacity: 0.9,
-          dashArray: '10 8',
-        }
-      ).addTo(routeLayer);
+  blockedRouteCoordinates,
+  {
+    color: '#dc2626',
+    weight: 6,
+    opacity: 0.9,
+  }
+).addTo(routeLayer);
 
       boundsLines.push(blockedLine);
     } else if (routeCoordinates?.length) {

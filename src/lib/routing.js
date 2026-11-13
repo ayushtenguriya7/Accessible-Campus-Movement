@@ -20,6 +20,8 @@ const MAX_429_RETRIES = 3;
 // This is NOT a limit on how much longer a detour can be.
 const BARRIER_POINT_TOLERANCE_METERS = 5;
 
+
+
 // Generate candidate waypoints at different distances around a blockage.
 const WAYPOINT_OFFSETS_METERS = [45, 90, 150];
 
@@ -356,6 +358,10 @@ function routeAvoidsAllReports(route, activeReports) {
   });
 }
 
+
+
+
+
 /**
  * Generate eight possible waypoint locations
  * around a reported blockage at multiple distances.
@@ -391,6 +397,7 @@ function generateWaypoints(report) {
 /**
  * Request a walking route through a candidate waypoint.
  */
+
 async function fetchRouteViaWaypoint(from, waypoint, to, signal) {
   const url =
     `${ROUTING_BASE_URL}/` +
@@ -403,7 +410,6 @@ async function fetchRouteViaWaypoint(from, waypoint, to, signal) {
 
   return routes[0] ?? null;
 }
-
 /**
  * Execute candidate requests with limited concurrency.
  * Only one request is sent at a time to reduce HTTP 429 errors.

@@ -140,19 +140,12 @@ export default function DashboardPage() {
     setBarrierError("");
   };
 
-  // Submit barrier report
+  // Submit barrier report without source/destination
   const handleSubmitBarrier = async (e) => {
     e.preventDefault();
 
     setBarrierMessage("");
     setBarrierError("");
-
-    if (!routeFinder.sourceId || !routeFinder.destinationId) {
-      setBarrierError(
-        "Please select a source and destination using Find Accessible Route first.",
-      );
-      return;
-    }
 
     if (!barrierLocation) {
       setBarrierError("Please select the blockage location on the map.");
@@ -173,8 +166,6 @@ export default function DashboardPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sourceBuildingId: routeFinder.sourceId,
-          destinationBuildingId: routeFinder.destinationId,
           barrierType,
           description: barrierDescription.trim(),
           latitude: barrierLocation.latitude,

@@ -84,6 +84,18 @@ export default function DashboardPage() {
     ? destinationBuilding
     : manualBuilding;
 
+  const handleViewBuilding = (campusKey) => {
+    const match = buildings.find(
+      (b) =>
+        String(b.campusKey) === String(campusKey) ||
+        String(b.campus_key) === String(campusKey) ||
+        String(b.id) === String(campusKey),
+    );
+    if (match) {
+      setManualBuildingId(match.id);
+    }
+  };
+
   // Fetch logged-in user
   useEffect(() => {
     fetch("/api/auth/me")
@@ -326,6 +338,8 @@ export default function DashboardPage() {
             buildings={routeFinder.buildings}
             sourceId={routeFinder.sourceId}
             destinationId={routeFinder.destinationId}
+            accessibility={buildings}
+            onViewBuilding={!isDestinationMode ? handleViewBuilding : undefined}
             routeCoordinates={routeFinder.route?.coordinates ?? null}
             blockedRouteCoordinates={
               routeFinder.route?.activeBarrierReports?.length

@@ -58,8 +58,9 @@ WITH combined_reports AS (
     NULL::integer AS lift_number,
     NULL::text AS floor,
     NULL::text AS problem_detail,
-    COALESCE('Near ' || cb.name, 'Unknown location')::text AS location_name
+    COALESCE(barrier_report_places.place_name, 'Near ' || cb.name, 'Unknown location')::text AS location_name
   FROM barrier_reports br
+  LEFT JOIN barrier_report_places ON barrier_report_places.report_id = br.id
   LEFT JOIN LATERAL (
     SELECT b.name
     FROM buildings b

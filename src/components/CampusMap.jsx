@@ -57,6 +57,7 @@ export default function CampusMap({
 
   isPickingBarrierLocation = false,
   onBarrierLocationSelect = () => {},
+  selectedPlaceName = undefined,
 }) {
   const mapContainer = useRef(null);
   const leaflet = useRef(null);
@@ -302,9 +303,56 @@ export default function CampusMap({
         const handleMapClick = (event) => {
           if (!pickingRef.current) return;
 
+          let place = null;
+          let minDistance = Infinity;
+          let nearestBuilding = null;
+          const clickPoint = campusMap.latLngToContainerPoint(event.latlng);
+
+          for (const building of buildings) {
+            if (
+              building.lat == null ||
+              building.lng == null ||
+              !Number.isFinite(Number(building.lat)) ||
+              !Number.isFinite(Number(building.lng))
+            ) {
+              continue;
+            }
+
+            const buildingPoint = campusMap.latLngToContainerPoint([
+              Number(building.lat),
+              Number(building.lng),
+            ]);
+            const distance = Math.hypot(
+              clickPoint.x - buildingPoint.x,
+              clickPoint.y - buildingPoint.y
+            );
+
+            if (distance < minDistance) {
+              minDistance = distance;
+              nearestBuilding = building;
+            }
+          }
+
+          if (nearestBuilding && minDistance <= 26) {
+            const campusKey =
+              nearestBuilding.campusKey ||
+              nearestBuilding.campus_key ||
+              nearestBuilding.id;
+            const dbBuilding = (accessibilityRef.current || []).find(
+              (b) =>
+                (b.campusKey || b.campus_key) ===
+                (nearestBuilding.campusKey ||
+                  nearestBuilding.campus_key ||
+                  nearestBuilding.id)
+            );
+            const name = dbBuilding?.name || nearestBuilding.name;
+            place = { campusKey, name };
+          }
+
           onSelectRef.current?.({
             latitude: event.latlng.lat,
             longitude: event.latlng.lng,
+            place,
           });
         };
 
@@ -505,11 +553,19 @@ export default function CampusMap({
         }
       ).addTo(barrierLayer);
 
+      const placeName =
+        barrierLocation?.place?.name ||
+        barrierLocation?.placeName ||
+        barrierLocation?.name ||
+        selectedPlaceName;
+
       selectedMarker.bindPopup(
-        '<strong>Selected blockage location</strong>'
+        placeName
+          ? `<strong>Selected: ${escapeHtml(placeName)}</strong>`
+          : '<strong>Selected blockage location</strong>'
       );
     }
-  }, [mapReady, barrierLocations, barrierLocation]);
+  }, [mapReady, barrierLocations, barrierLocation, selectedPlaceName]);
 
   // Change cursor while selecting a report location.
   useEffect(() => {

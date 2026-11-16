@@ -58,11 +58,16 @@ export async function POST(request) {
 
     const { barrierType, description, latitude, longitude } = body;
 
+    const hasInvalidDescription =
+      (description !== undefined &&
+        description !== null &&
+        typeof description !== "string") ||
+      (typeof description === "string" && description.trim().length > 1000);
+
     if (
       typeof barrierType !== "string" ||
       !barrierType.trim() ||
-      !description?.trim() ||
-      description.trim().length > 1000 ||
+      hasInvalidDescription ||
       typeof latitude !== "number" ||
       typeof longitude !== "number" ||
       !Number.isFinite(latitude) ||
@@ -84,6 +89,9 @@ export async function POST(request) {
         { status: 401 },
       );
     }
+
+    const cleanDescription =
+      typeof description === "string" ? description.trim() : "";
 
     const result = await query(
       `INSERT INTO barrier_reports (
@@ -109,7 +117,7 @@ export async function POST(request) {
         user.id,
         user.name,
         barrierType.trim(),
-        description.trim(),
+        cleanDescription,
         latitude,
         longitude,
       ],

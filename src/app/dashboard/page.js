@@ -96,6 +96,15 @@ export default function DashboardPage() {
     }
   };
 
+  const handleBuildingReported = (updatedBuilding) => {
+    if (!updatedBuilding?.id) return;
+    setBuildings((prev) =>
+      prev.map((b) =>
+        String(b.id) === String(updatedBuilding.id) ? updatedBuilding : b,
+      ),
+    );
+  };
+
   // Fetch logged-in user
   useEffect(() => {
     fetch("/api/auth/me")
@@ -669,7 +678,10 @@ export default function DashboardPage() {
                   </p>
                 </div>
               ) : (
-                <BuildingAccessibilityCard building={selectedBuilding} />
+                <BuildingAccessibilityCard
+                  building={selectedBuilding}
+                  onReported={handleBuildingReported}
+                />
               ))}
           </div>
         </div>

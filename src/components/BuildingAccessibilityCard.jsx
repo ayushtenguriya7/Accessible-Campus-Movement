@@ -1,5 +1,8 @@
 'use client';
 
+import { useState, useRef } from 'react';
+import LiftReportDialog from './LiftReportDialog';
+
 /**
  * BuildingAccessibilityCard
  * Displays a table of ramp / lift / stair counts for one campus building.
@@ -77,45 +80,47 @@ function rowAriaLabel({ label, total, working, workingWord, notWorkingWord }) {
  *   working = 0, total>0 → red bold both lines            (worst case)
  *   mixed                → green line + red line
  */
-function StatusCell({ total, working, workingWord, notWorkingWord }) {
+function StatusCell({ total, working, workingWord, notWorkingWord, action = null }) {
   const notWorking = total - working;
 
+  let content;
   if (total === 0) {
-    return (
-      <td className="px-3 py-2 text-slate-400 text-[11px] italic" aria-hidden="true">
+    content = (
+      <span className="text-slate-400 text-[11px] italic">
         None in this building
-      </td>
+      </span>
     );
-  }
-
-  if (notWorking === 0) {
+  } else if (notWorking === 0) {
     // Everything working — green line only
-    return (
-      <td className="px-3 py-2" aria-hidden="true">
-        <span className="text-[11px] text-green-700">
-          🟢 {working} {workingWord}
-        </span>
-      </td>
+    content = (
+      <span className="text-[11px] text-green-700">
+        🟢 {working} {workingWord}
+      </span>
     );
-  }
-
-  if (working === 0) {
+  } else if (working === 0) {
     // Nothing working — both lines red + bold
-    return (
-      <td className="px-3 py-2 space-y-0.5" aria-hidden="true">
+    content = (
+      <div className="space-y-0.5">
         <div className="text-[11px] font-bold text-red-700">🔴 0 {workingWord}</div>
         <div className="text-[11px] font-bold text-red-700">
           🔴 {notWorking} {notWorkingWord}
         </div>
-      </td>
+      </div>
+    );
+  } else {
+    // Mixed — green working count + red not-working count
+    content = (
+      <div className="space-y-0.5">
+        <div className="text-[11px] text-green-700">🟢 {working} {workingWord}</div>
+        <div className="text-[11px] text-red-700">🔴 {notWorking} {notWorkingWord}</div>
+      </div>
     );
   }
 
-  // Mixed — green working count + red not-working count
   return (
-    <td className="px-3 py-2 space-y-0.5" aria-hidden="true">
-      <div className="text-[11px] text-green-700">🟢 {working} {workingWord}</div>
-      <div className="text-[11px] text-red-700">🔴 {notWorking} {notWorkingWord}</div>
+    <td className="px-3 py-2 space-y-1">
+      <div aria-hidden="true">{content}</div>
+      {action}
     </td>
   );
 }
@@ -124,7 +129,79 @@ function StatusCell({ total, working, workingWord, notWorkingWord }) {
 // Public component
 // ---------------------------------------------------------------------------
 
-export default function BuildingAccessibilityCard({ building }) {
+export default function BuildingAccessibilityCard({
+  building,
+  onReported = undefined,
+}) {
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const triggerButtonRef = useRef(null);
+
+  const feedbackMessage =
+    feedback?.buildingId === building?.id ? feedback.message : '';
+
+  const handleCloseDialog = () => {
+    setIsDialogOpen(false);
+    triggerButtonRef.current?.focus();
+  };
+
+  const handleReportSuccess = (updatedBuilding) => {
+    setIsDialogOpen(false);
+    setFeedback({
+      buildingId: updatedBuilding?.id || building?.id,
+      message: 'Thanks, your lift report was sent',
+    });
+    triggerButtonRef.current?.focus();
+    if (typeof onReported === 'function') {
+      onReported(updatedBuilding);
+    }
+  };
+
+  const renderLiftButton = () => {
+    const liftsTotal = building?.liftsTotal ?? building?.lifts_total ?? 0;
+    const liftsWorking = building?.liftsWorking ?? building?.lifts_working ?? 0;
+
+    if (liftsTotal === 0) {
+      return (
+        <button
+          ref={triggerButtonRef}
+          type="button"
+          disabled
+          className="text-[11px] text-slate-400 cursor-not-allowed block mt-1"
+        >
+          No lift in this building
+        </button>
+      );
+    }
+
+    if (liftsWorking === 0) {
+      return (
+        <button
+          ref={triggerButtonRef}
+          type="button"
+          disabled
+          className="text-[11px] text-slate-400 cursor-not-allowed block mt-1"
+        >
+          All lifts already reported
+        </button>
+      );
+    }
+
+    return (
+      <button
+        ref={triggerButtonRef}
+        type="button"
+        onClick={() => {
+          setFeedback(null);
+          setIsDialogOpen(true);
+        }}
+        className="text-[11px] font-medium text-orange-600 hover:text-orange-700 underline underline-offset-2 block mt-1 cursor-pointer"
+      >
+        Report lift issue
+      </button>
+    );
+  };
+
   // Placeholder — no building selected yet
   if (!building) {
     return (
@@ -158,6 +235,25 @@ export default function BuildingAccessibilityCard({ building }) {
       {/* Card header */}
       <h3 className="font-semibold text-slate-800 text-sm mb-0.5">{building.name}</h3>
       <p className="text-xs text-slate-500 mb-3">Current accessibility status</p>
+
+      {/* Success feedback */}
+      {feedbackMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-3 p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center justify-between"
+        >
+          <span>{feedbackMessage}</span>
+          <button
+            type="button"
+            onClick={() => setFeedback(null)}
+            className="text-emerald-600 hover:text-emerald-800 font-bold ml-2 cursor-pointer"
+            aria-label="Dismiss message"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Accessibility table */}
       <div className="overflow-x-auto -mx-1">
@@ -202,12 +298,21 @@ export default function BuildingAccessibilityCard({ building }) {
                   working={f.working}
                   workingWord={f.workingWord}
                   notWorkingWord={f.notWorkingWord}
+                  action={f.label === 'Lift' ? renderLiftButton() : null}
                 />
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Modal dialog for reporting lift issues */}
+      <LiftReportDialog
+        isOpen={isDialogOpen}
+        onClose={handleCloseDialog}
+        building={building}
+        onSuccess={handleReportSuccess}
+      />
     </div>
   );
 }

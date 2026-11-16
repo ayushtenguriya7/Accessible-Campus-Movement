@@ -517,8 +517,19 @@ export default function CampusMap({
 
     if (!mapReady || !ctx) return;
 
-    ctx.map.getContainer().style.cursor =
+    const container = ctx.map.getContainer();
+    container.style.cursor =
       isPickingBarrierLocation ? 'crosshair' : '';
+    container.classList.toggle('barrier-picking', isPickingBarrierLocation);
+
+    if (isPickingBarrierLocation) {
+      ctx.map.closePopup();
+    }
+
+    return () => {
+      container.classList.remove('barrier-picking');
+      container.style.cursor = '';
+    };
   }, [mapReady, isPickingBarrierLocation]);
 
   // Re-center when Reset is pressed.

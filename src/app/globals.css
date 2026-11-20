@@ -24,3 +24,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.barrier-picking, .barrier-picking * { cursor: crosshair !important; }
+.barrier-picking .leaflet-marker-icon, .barrier-picking .leaflet-interactive, .barrier-picking .leaflet-popup { pointer-events: none !important; }
+

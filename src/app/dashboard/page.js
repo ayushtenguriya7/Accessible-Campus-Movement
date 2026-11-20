@@ -20,6 +20,32 @@ const CampusMap = dynamic(() => import("../../components/CampusMap"), {
   ),
 });
 
+function getNearestBuildingName(lat, lng, buildingsList) {
+  if (
+    !Number.isFinite(Number(lat)) ||
+    !Number.isFinite(Number(lng)) ||
+    !Array.isArray(buildingsList) ||
+    buildingsList.length === 0
+  ) {
+    return null;
+  }
+  let nearest = null;
+  let minDistanceSq = Infinity;
+  for (const b of buildingsList) {
+    const bLat = Number(b.latitude ?? b.lat);
+    const bLng = Number(b.longitude ?? b.lng);
+    if (!Number.isFinite(bLat) || !Number.isFinite(bLng)) continue;
+    const dLat = bLat - Number(lat);
+    const dLng = bLng - Number(lng);
+    const distSq = dLat * dLat + dLng * dLng;
+    if (distSq < minDistanceSq) {
+      minDistanceSq = distSq;
+      nearest = b;
+    }
+  }
+  return nearest?.name || null;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -39,6 +65,7 @@ export default function DashboardPage() {
   const [barrierType, setBarrierType] = useState("construction");
   const [barrierDescription, setBarrierDescription] = useState("");
   const [barrierReports, setBarrierReports] = useState([]);
+  const [barrierPlaces, setBarrierPlaces] = useState({});
   const [submittingReport, setSubmittingReport] = useState(false);
   const [barrierMessage, setBarrierMessage] = useState("");
   const [barrierError, setBarrierError] = useState("");
@@ -84,6 +111,27 @@ export default function DashboardPage() {
     ? destinationBuilding
     : manualBuilding;
 
+  const handleViewBuilding = (campusKey) => {
+    const match = buildings.find(
+      (b) =>
+        String(b.campusKey) === String(campusKey) ||
+        String(b.campus_key) === String(campusKey) ||
+        String(b.id) === String(campusKey),
+    );
+    if (match) {
+      setManualBuildingId(match.id);
+    }
+  };
+
+  const handleBuildingReported = (updatedBuilding) => {
+    if (!updatedBuilding?.id) return;
+    setBuildings((prev) =>
+      prev.map((b) =>
+        String(b.id) === String(updatedBuilding.id) ? updatedBuilding : b,
+      ),
+    );
+  };
+
   // Fetch logged-in user
   useEffect(() => {
     fetch("/api/auth/me")
@@ -126,6 +174,27 @@ export default function DashboardPage() {
 
       setBarrierReports(reports);
       routeFinder.updateBarrierReports(reports);
+
+      const ids = reports
+        .map((r) => r.id)
+        .filter((id) => Number.isInteger(Number(id)) && Number(id) > 0)
+        .slice(0, 200);
+
+      if (ids.length > 0) {
+        try {
+          const placesRes = await fetch(
+            `/api/barrier-places?ids=${ids.join(",")}`,
+          );
+          if (placesRes.ok) {
+            const placesData = await placesRes.json();
+            setBarrierPlaces(placesData.places || {});
+          }
+        } catch (placesErr) {
+          console.error("Barrier places error:", placesErr);
+        }
+      } else {
+        setBarrierPlaces({});
+      }
     } catch (err) {
       console.error("Barrier reports error:", err);
     }
@@ -155,8 +224,8 @@ export default function DashboardPage() {
       return;
     }
 
-    if (!barrierDescription.trim()) {
-      setBarrierError("Please enter a description of the blockage.");
+    if (barrierDescription.trim().length > 1000) {
+      setBarrierError("Description must not exceed 1000 characters.");
       return;
     }
 
@@ -182,7 +251,33 @@ export default function DashboardPage() {
         throw new Error(data.error || "Failed to submit barrier report.");
       }
 
-      setBarrierMessage("Barrier report submitted successfully!");
+      let successMessage = "Barrier report submitted successfully!";
+      const newReportId = data.report?.id ?? data.id;
+
+      if (newReportId && barrierLocation.place?.campusKey) {
+        try {
+          const placeRes = await fetch("/api/barrier-places", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              reportId: newReportId,
+              placeKey: barrierLocation.place.campusKey,
+            }),
+          });
+
+          if (!placeRes.ok) {
+            successMessage =
+              "Report submitted, but the place name could not be saved.";
+          }
+        } catch {
+          successMessage =
+            "Report submitted, but the place name could not be saved.";
+        }
+      }
+
+      setBarrierMessage(successMessage);
       setBarrierLocation(null);
       setBarrierDescription("");
       setIsPickingBarrierLocation(false);
@@ -326,6 +421,8 @@ export default function DashboardPage() {
             buildings={routeFinder.buildings}
             sourceId={routeFinder.sourceId}
             destinationId={routeFinder.destinationId}
+            accessibility={buildings}
+            onViewBuilding={!isDestinationMode ? handleViewBuilding : undefined}
             routeCoordinates={routeFinder.route?.coordinates ?? null}
             blockedRouteCoordinates={
               routeFinder.route?.activeBarrierReports?.length
@@ -343,6 +440,7 @@ export default function DashboardPage() {
             isPickingBarrierLocation={isPickingBarrierLocation}
             onBarrierLocationSelect={handleBarrierLocationSelect}
             barrierLocation={barrierLocation}
+            selectedPlaceName={barrierLocation?.place?.name}
           />
         </div>
 
@@ -399,13 +497,34 @@ export default function DashboardPage() {
 
               {barrierLocation && (
                 <div className="mt-3 bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-green-800">
-                    Selected location
-                  </p>
-                  <p className="text-[11px] text-green-700 mt-1">
+                  {barrierLocation.place?.name ? (
+                    <p className="text-xs text-green-950">
+                      <span className="font-bold">
+                        Location: {barrierLocation.place.name}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-green-950">
+                      <span className="font-bold">Custom map point</span>
+                      {(() => {
+                        const nearest = getNearestBuildingName(
+                          barrierLocation.latitude,
+                          barrierLocation.longitude,
+                          buildings.length ? buildings : routeFinder.buildings,
+                        );
+                        return nearest ? (
+                          <span className="text-green-800 font-normal">
+                            {" "}
+                            (nearest: {nearest})
+                          </span>
+                        ) : null;
+                      })()}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-green-700/80 mt-1">
                     Latitude: {barrierLocation.latitude.toFixed(6)}
                   </p>
-                  <p className="text-[11px] text-green-700">
+                  <p className="text-[10px] text-green-700/80">
                     Longitude: {barrierLocation.longitude.toFixed(6)}
                   </p>
 
@@ -452,7 +571,10 @@ export default function DashboardPage() {
                       htmlFor="barrier-description"
                       className="block text-xs font-medium text-slate-700 mb-1"
                     >
-                      Description
+                      Description{" "}
+                      <span className="text-slate-400 font-normal">
+                        (optional)
+                      </span>
                     </label>
 
                     <textarea
@@ -461,7 +583,7 @@ export default function DashboardPage() {
                       maxLength={1000}
                       value={barrierDescription}
                       onChange={(e) => setBarrierDescription(e.target.value)}
-                      placeholder="Describe the blockage..."
+                      placeholder="Describe the blockage... (optional)"
                       className="w-full text-xs border border-slate-300 rounded-lg px-2.5 py-2 resize-y"
                     />
                   </div>
@@ -505,18 +627,43 @@ export default function DashboardPage() {
                 </p>
               ) : (
                 <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {barrierReports.map((report) => (
-                    <div
-                      key={report.id}
-                      className="border-t border-slate-100 pt-2"
-                    >
-                      <p className="text-xs font-semibold text-slate-700">
-                        {String(report.barrierType || "").replaceAll("_", " ")}
-                      </p>
+                  {barrierReports.map((report) => {
+                    const placeInfo =
+                      barrierPlaces[report.id] ||
+                      barrierPlaces[String(report.id)];
+                    const placeName = placeInfo?.placeName;
 
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        {report.description}
-                      </p>
+                    return (
+                      <div
+                        key={report.id}
+                        className="border-t border-slate-100 pt-2"
+                      >
+                        {placeName ? (
+                          <>
+                            <p className="text-xs font-bold text-slate-900">
+                              {placeName}
+                            </p>
+                            <p className="text-[11px] font-medium text-slate-600">
+                              {String(report.barrierType || "").replaceAll(
+                                "_",
+                                " ",
+                              )}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-xs font-semibold text-slate-700">
+                            {String(report.barrierType || "").replaceAll(
+                              "_",
+                              " ",
+                            )}
+                          </p>
+                        )}
+
+                      {report.description ? (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          {report.description}
+                        </p>
+                      ) : null}
 
                       <div className="flex items-center justify-between gap-2 mt-2">
                         <span
@@ -553,7 +700,8 @@ export default function DashboardPage() {
                         )}
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
               )}
 
@@ -655,7 +803,10 @@ export default function DashboardPage() {
                   </p>
                 </div>
               ) : (
-                <BuildingAccessibilityCard building={selectedBuilding} />
+                <BuildingAccessibilityCard
+                  building={selectedBuilding}
+                  onReported={handleBuildingReported}
+                />
               ))}
           </div>
         </div>

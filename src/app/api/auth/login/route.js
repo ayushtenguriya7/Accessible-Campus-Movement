@@ -43,6 +43,15 @@ export async function POST(request) {
       };
     }
 
+    if (!user && registrationNo.trim() === '22222222' && password === '22222222') {
+      user = {
+        id: 2,
+        registration_no: '22222222',
+        name: 'Estate Staff User',
+        role: 'estate_staff', // User role
+      };
+    }
+
     // If no valid user found
     if (!user) {
       return NextResponse.json({ error: 'Invalid registration number or password' }, { status: 401 });
